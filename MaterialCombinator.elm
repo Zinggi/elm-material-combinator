@@ -17,13 +17,13 @@ The lightning model is a function that takes some Units and produces a Material.
 
 import Math.Vector3 exposing (Vec3, vec3)
 import Math.Vector2 exposing (Vec2)
-import WebGL exposing (Shader, Texture)
+import WebGL exposing (Shader, Texture, Mesh)
 import Native.Reflection
 
 
 {-| this is how the library might be used
 -}
-example : Material { uvCoordinates : Vec2, vertexPosition : Vec3 } { color : Vec3, texture : Texture } { vpos : Vec3, vcoord : Vec2 }
+example : Material { uvCoordinates : Vec2, vertexPosition : Vec3 } { color : Vec3, texture : Texture }
 example =
     physicallyBasedMaterial
         { baseColor =
@@ -33,22 +33,25 @@ example =
                 (uniform .color)
         , roughness =
             -- use the green channel for roughness
-            extraxtGreen (uniform .texture)
+            extractGreen (uniform .texture)
         }
 
 
 {-| This type just bundles a vertex/fragment shader pair
 -}
-type alias Material attributes uniforms varyings =
-    { frag : Shader {} uniforms varyings
-    , vert : Shader attributes uniforms varyings
-    }
+type Material attributes uniforms
+    = Material
 
 
 {-| This type represents a wire in UE4's material editor
 -}
 type Unit uniforms type_
     = Unit
+
+
+render : Material attributes uniforms -> Mesh attributes -> uniforms -> WebGL.Entity
+render =
+    Debug.crash "todo"
 
 
 {-| We could have different ligning models here.
@@ -58,7 +61,7 @@ physicallyBasedMaterial :
     { baseColor : Unit uniforms Vec3
     , roughness : Unit uniforms Float
     }
-    -> Material { uvCoordinates : Vec2, vertexPosition : Vec3 } uniforms { vpos : Vec3, vcoord : Vec2 }
+    -> Material { uvCoordinates : Vec2, vertexPosition : Vec3 } uniforms
 physicallyBasedMaterial =
     Debug.crash ""
 
@@ -87,8 +90,8 @@ sampleUV =
 
 {-| extract the green texture chanel
 -}
-extraxtGreen : Unit uniforms Texture -> Unit uniforms Float
-extraxtGreen =
+extractGreen : Unit uniforms Texture -> Unit uniforms Float
+extractGreen =
     Debug.crash ""
 
 
