@@ -29,11 +29,11 @@ example =
         { baseColor =
             -- multiply `color` to the input `texture`
             multiply
-                (sampleUV (uniform .texture))
-                (uniform .color)
+                (sampleUV (texture .texture))
+                (vec3 .color)
         , roughness =
             -- use the green channel for roughness
-            extractGreen (uniform .texture)
+            extractGreen (texture .texture)
         }
 
 
@@ -66,7 +66,8 @@ physicallyBasedMaterial =
     Debug.crash ""
 
 
-{-| create an input variable
+{-| create an input variable.
+This would not be exported to the user!
 
 (For implementation, this signature would require native code, to figure out the name of the property accessed.
 without native, the api could be changed to:
@@ -75,10 +76,20 @@ however, this way a user would have to remember to always use the same string as
 e.g: `uniform .texture "texture"`. This would make it prone to some errors.
 
 -}
-uniform : (uniforms -> a) -> Unit uniforms a
-uniform f =
+uniform : (uniforms -> a) -> String -> Unit uniforms a
+uniform f type_ =
     --Native.Reflection.getAccessorName f
     Debug.crash ""
+
+
+texture : (uniforms -> Texture) -> Unit uniforms Texture
+texture =
+    Debug.crash "todo"
+
+
+vec3 : (uniforms -> Vec3) -> Unit uniforms Vec3
+vec3 =
+    Debug.crash "todo"
 
 
 {-| sample a texture
