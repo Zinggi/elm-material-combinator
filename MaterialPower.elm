@@ -11,14 +11,19 @@ import Dict exposing (Dict)
 import Native.Reflection
 
 
+getAccessorName : (a -> b) -> Result String String
+getAccessorName =
+    Native.Reflection.getAccessorName
+
+
 {-| this is how the library might be used
 -}
 example =
     customMaterial
         { position =
-            glMulVectorMat4 (uniform .mvp "mvp" "mat4")
-                (glVec3to4 (attribute .position "position" "vec3"))
-        , fragColor = glVec3to4 (attribute .vertexNormal "vertexNormal" "vec3")
+            glMulVectorMat4 (mat4 .mvp)
+                (glVec3to4 position)
+        , fragColor = glVec3to4 vertexNormal
         }
 
 
@@ -26,15 +31,13 @@ example2 =
     customMaterial
         { position =
             glMulVectorMat4
-                (uniform .projectionMatrix "projectionMatrix" "mat4")
-                (glMulVectorMat4 (uniform .modelViewMatrix "modelViewMatrix" "mat4")
-                    (glVec3to4 (attribute .position "position" "vec3"))
+                (mat4 .projectionMatrix)
+                (glMulVectorMat4 (mat4 .modelViewMatrix)
+                    (glVec3to4 position)
                 )
         , fragColor =
             glNormalize
-                (glMulVectorMat3 (uniform .normalMatrix "normalMatrix" "mat3")
-                    (attribute .normal "normal" "vec3")
-                )
+                (glMulVectorMat3 (uniform .normalMatrix "mat3") normal)
                 |> glVec3to4
         }
 
@@ -66,16 +69,122 @@ type Unit uniforms attributes type_
     = Unit { source : String, uniforms : Dict String String, attributes : Dict String String }
 
 
-{-| create an input variable
--}
-uniform : (uniforms -> a) -> String -> String -> Unit uniforms attributes a
-uniform f name type_ =
-    Unit { source = name, uniforms = Dict.singleton name type_, attributes = Dict.empty }
+uniform : (uniforms -> a) -> String -> Unit uniforms attributes a
+uniform f type_ =
+    case getAccessorName f of
+        Err e ->
+            Debug.crash "You provided a uniform accessor that was not in the form of '.someVariable'\nAborting!"
+
+        Ok name ->
+            Unit { source = name, uniforms = Dict.singleton name type_, attributes = Dict.empty }
 
 
-attribute : (attributes -> a) -> String -> String -> Unit uniforms attributes a
-attribute f name type_ =
-    Unit { source = name, attributes = Dict.singleton name type_, uniforms = Dict.empty }
+attribute : (attributes -> a) -> String -> Unit uniforms attributes a
+attribute f type_ =
+    case getAccessorName f of
+        Err e ->
+            Debug.crash "You provided a uniform accessor that was not in the form of '.someVariable'\nAborting!"
+
+        Ok name ->
+            Unit { source = name, attributes = Dict.singleton name type_, uniforms = Dict.empty }
+
+
+
+-- uniform types
+
+
+texture : (uniforms -> Texture) -> Unit uniforms attributes Texture
+texture f =
+    uniform f "sampler2D"
+
+
+vec2 : (uniforms -> Vec2) -> Unit uniforms attributes Vec2
+vec2 f =
+    uniform f "vec2"
+
+
+vec3 : (uniforms -> Vec3) -> Unit uniforms attributes Vec3
+vec3 f =
+    uniform f "vec3"
+
+
+vec4 : (uniforms -> Vec4) -> Unit uniforms attributes Vec4
+vec4 f =
+    uniform f "vec4"
+
+
+mat4 : (uniforms -> Mat4) -> Unit uniforms attributes Mat4
+mat4 f =
+    uniform f "mat4"
+
+
+float : (uniforms -> Float) -> Unit uniforms attributes Float
+float f =
+    uniform f "float"
+
+
+int : (uniforms -> Int) -> Unit uniforms attributes Int
+int f =
+    uniform f "int"
+
+
+
+-- common attributes
+
+
+position : Unit uniforms { a | position : Vec3 } Vec3
+position =
+    attribute .position "vec3"
+
+
+vertexNormal : Unit uniforms { a | vertexNormal : Vec3 } Vec3
+vertexNormal =
+    attribute .vertexNormal "vec3"
+
+
+normal : Unit uniforms { a | normal : Vec3 } Vec3
+normal =
+    attribute .normal "vec3"
+
+
+
+-- attribute types
+
+
+vec2Attribute : (attributes -> Vec2) -> Unit uniforms attributes Vec2
+vec2Attribute f =
+    attribute f "vec2"
+
+
+vec3Attribute : (attributes -> Vec3) -> Unit uniforms attributes Vec3
+vec3Attribute f =
+    attribute f "vec3"
+
+
+vec4Attribute : (attributes -> Vec4) -> Unit uniforms attributes Vec4
+vec4Attribute f =
+    attribute f "vec4"
+
+
+mat4Attribute : (attributes -> Mat4) -> Unit uniforms attributes Mat4
+mat4Attribute f =
+    attribute f "mat4"
+
+
+floatAttribute : (attributes -> Float) -> Unit uniforms attributes Float
+floatAttribute f =
+    attribute f "float"
+
+
+intAttribute : (attributes -> Int) -> Unit uniforms attributes Int
+intAttribute f =
+    attribute f "int"
+
+
+
+------------------------------------------
+-- Implementation
+------------------------------------------
 
 
 getUniforms : Unit a u t -> String
