@@ -17,8 +17,25 @@ example =
     customMaterial
         { position =
             glMulVectorMat4 (uniform .mvp "mvp" "mat4")
-                (glVec3to4 (attribute .position "position" "vec4"))
+                (glVec3to4 (attribute .position "position" "vec3"))
         , fragColor = glVec3to4 (attribute .vertexNormal "vertexNormal" "vec3")
+        }
+
+
+example2 =
+    customMaterial
+        { position =
+            glMulVectorMat4
+                (uniform .projectionMatrix "projectionMatrix" "mat4")
+                (glMulVectorMat4 (uniform .modelViewMatrix "modelViewMatrix" "mat4")
+                    (glVec3to4 (attribute .position "position" "vec3"))
+                )
+        , fragColor =
+            glNormalize
+                (glMulVectorMat3 (uniform .normalMatrix "normalMatrix" "mat3")
+                    (attribute .normal "normal" "vec3")
+                )
+                |> glVec3to4
         }
 
 
@@ -61,6 +78,74 @@ attribute f name type_ =
     Unit { source = name, attributes = Dict.singleton name type_, uniforms = Dict.empty }
 
 
+getUniforms : Unit a u t -> String
+getUniforms (Unit u) =
+    dictToDeclaration "uniform" "" u.uniforms
+
+
+getAttributes : Unit a1 u1 t1 -> Unit a1 u1 t1 -> String
+getAttributes (Unit uv) (Unit uf) =
+    Dict.union uv.attributes uf.attributes
+        |> dictToDeclaration "attribute" ""
+
+
+dictToDeclaration : String -> String -> Dict String String -> String
+dictToDeclaration mod nameMod d =
+    appendIfNotEmpty ";\n"
+        (Dict.toList d
+            |> List.map
+                (\( name, type_ ) ->
+                    mod ++ " " ++ type_ ++ " " ++ nameMod ++ name
+                )
+            |> String.join ";\n"
+        )
+
+
+appendIfNotEmpty appendum s =
+    if s == "" then
+        ""
+    else
+        s ++ appendum
+
+
+{-| TODO: this is an ugly hack because my datastructure for Unit is too primitive.
+A better idea would be to create an AST and then a code generator for that
+-}
+varyingToAttrHack (Unit d) =
+    appendIfNotEmpty ";\n"
+        (Dict.toList d.attributes
+            |> List.map
+                (\( name, type_ ) ->
+                    type_ ++ " " ++ name ++ " = " ++ "v" ++ name
+                )
+            |> String.join ";\n"
+        )
+
+
+getSource : Unit a u t -> String
+getSource (Unit u) =
+    u.source ++ ";\n"
+
+
+getVaryings : Unit u a t -> ( String, String )
+getVaryings (Unit u) =
+    let
+        declr =
+            dictToDeclaration "varying" "v" u.attributes
+
+        assign =
+            appendIfNotEmpty ";\n"
+                (Dict.toList u.attributes
+                    |> List.map
+                        (\( name, _ ) ->
+                            "v" ++ name ++ " = " ++ name
+                        )
+                    |> String.join ";\n"
+                )
+    in
+        ( declr, assign )
+
+
 customMaterial :
     { position : Unit uniforms attributes Vec4
     , fragColor : Unit uniforms attributes Vec4
@@ -68,42 +153,35 @@ customMaterial :
     -> Material uniforms attributes
 customMaterial { position, fragColor } =
     let
-        ( declarations, vertCode, fragCode ) =
-            case ( position, fragColor ) of
-                ( Unit uv, Unit uf ) ->
-                    ( (Dict.toList uv.uniforms
-                        |> List.map
-                            (\( name, type_ ) ->
-                                "uniform " ++ type_ ++ " " ++ name
-                            )
-                        |> String.join ";\n"
-                      )
-                        ++ ";\n"
-                    , uv.source ++ ";\n"
-                    , uf.source
-                    )
+        ( varyingDeclarations, varyingAssignments ) =
+            getVaryings fragColor
     in
         Material
             { vert =
                 "precision mediump float;\n"
-                    ++ declarations
+                    ++ getUniforms position
+                    ++ getAttributes position fragColor
+                    ++ varyingDeclarations
                     ++ "void main() {\n"
+                    ++ varyingAssignments
                     ++ "gl_Position = "
-                    ++ vertCode
+                    ++ getSource position
                     ++ "}\n"
             , frag =
                 "precision mediump float;\n"
-                    ++ declarations
+                    ++ getUniforms fragColor
+                    ++ varyingDeclarations
                     ++ "void main() {\n"
+                    ++ varyingToAttrHack fragColor
                     ++ "gl_FragColor = "
-                    ++ fragCode
+                    ++ getSource fragColor
                     ++ "}\n"
             }
 
 
 glMulVectorMat4 : Unit u a Mat4 -> Unit u a Vec4 -> Unit u a Vec4
 glMulVectorMat4 (Unit mat) (Unit vec) =
-    mergeUnits mat vec (mat.source ++ " * " ++ vec.source)
+    mergeUnits mat vec ("(" ++ mat.source ++ " * " ++ vec.source ++ ")")
 
 
 mergeUnits u1 u2 source =
@@ -118,3 +196,17 @@ mergeUnits u1 u2 source =
 glVec3to4 : Unit u a Vec3 -> Unit u a Vec4
 glVec3to4 (Unit vec) =
     Unit { vec | source = "vec4(" ++ vec.source ++ ",1.0)" }
+
+
+glNormalize : Unit u a Vec3 -> Unit u a Vec3
+glNormalize (Unit u) =
+    Unit { u | source = "normalize(" ++ u.source ++ ")" }
+
+
+type Mat3
+    = Mat3
+
+
+glMulVectorMat3 : Unit u a Mat3 -> Unit u a Vec3 -> Unit u a Vec3
+glMulVectorMat3 (Unit mat) (Unit vec) =
+    mergeUnits mat vec ("(" ++ mat.source ++ " * " ++ vec.source ++ ")")

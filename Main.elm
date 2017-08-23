@@ -8,8 +8,8 @@ import MaterialPower exposing (..)
 
 main =
     Html.div []
-        [ Html.textarea [] [ text (getVert example) ]
-        , Html.textarea [] [ text (getFrag example) ]
+        [ Html.textarea [] [ text (getVert example2) ]
+        , Html.textarea [] [ text (getFrag example2) ]
         ]
 
 
