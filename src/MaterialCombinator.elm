@@ -1,11 +1,11 @@
-module MaterialPower exposing (..)
+module MaterialCombinator exposing (..)
 
 {-| -}
 
-import Math.Matrix4 exposing (Mat4)
-import Math.Vector4 exposing (Vec4)
-import Math.Vector3 exposing (Vec3)
-import Math.Vector2 exposing (Vec2)
+import Math.Matrix4 as M4 exposing (Mat4)
+import Math.Vector4 as V4 exposing (Vec4)
+import Math.Vector3 as V3 exposing (Vec3)
+import Math.Vector2 as V2 exposing (Vec2)
 import WebGL exposing (Shader, Texture, Mesh, entity)
 import Dict exposing (Dict)
 import Native.Reflection
@@ -16,35 +16,27 @@ getAccessorName =
     Native.Reflection.getAccessorName
 
 
-{-| this is how the library might be used
--}
-example =
-    customMaterial
-        { position =
-            glMulVectorMat4 (mat4 .mvp)
-                (glVec3to4 position)
-        , fragColor = glVec3to4 vertexNormal
-        }
-
-
-example2 =
-    customMaterial
-        { position =
-            glMulVectorMat4
-                (mat4 .projectionMatrix)
-                (glMulVectorMat4 (mat4 .modelViewMatrix)
-                    (glVec3to4 position)
-                )
-        , fragColor =
-            glNormalize
-                (glMulVectorMat3 (uniform .normalMatrix "mat3") normal)
-                |> glVec3to4
-        }
-
-
 render : Material attributes uniforms -> Mesh attributes -> uniforms -> WebGL.Entity
 render material =
     entity (WebGL.unsafeShader (getVert material)) (WebGL.unsafeShader (getFrag material))
+
+
+type alias ShaderTuple a u v =
+    ( Shader a u v, Shader {} u v )
+
+
+extractShader : Material attributes uniforms -> ShaderTuple attributes uniforms v
+extractShader m =
+    let
+        ( v, f ) =
+            extractShaderCode m
+    in
+        ( WebGL.unsafeShader v, WebGL.unsafeShader f )
+
+
+extractShaderCode : Material attributes uniforms -> ( String, String )
+extractShaderCode (Material m) =
+    ( m.vert, m.frag )
 
 
 getVert : Material a u -> String
@@ -126,6 +118,55 @@ float f =
 int : (uniforms -> Int) -> Unit uniforms attributes Int
 int f =
     uniform f "int"
+
+
+
+-- constants
+
+
+constInt : Int -> Unit uniforms attributes Int
+constInt i =
+    Unit { source = toString i, uniforms = Dict.empty, attributes = Dict.empty }
+
+
+constFloat : Float -> Unit uniforms attributes Float
+constFloat i =
+    Unit { source = toString i, uniforms = Dict.empty, attributes = Dict.empty }
+
+
+constVec2 : Vec2 -> Unit uniforms attributes Vec2
+constVec2 v =
+    let
+        ( x, y ) =
+            V2.toTuple v
+    in
+        Unit { source = "vec2(" ++ toString x ++ "," ++ toString y ++ ")", uniforms = Dict.empty, attributes = Dict.empty }
+
+
+constVec3 : Vec3 -> Unit uniforms attributes Vec3
+constVec3 v =
+    let
+        ( x, y, z ) =
+            V3.toTuple v
+    in
+        Unit
+            { source = "vec3(" ++ toString x ++ "," ++ toString y ++ "," ++ toString z ++ ")"
+            , uniforms = Dict.empty
+            , attributes = Dict.empty
+            }
+
+
+constVec4 : Vec4 -> Unit uniforms attributes Vec4
+constVec4 v =
+    let
+        ( x, y, z, w ) =
+            V4.toTuple v
+    in
+        Unit
+            { source = "vec4(" ++ toString x ++ "," ++ toString y ++ "," ++ toString z ++ "," ++ toString w ++ ")"
+            , uniforms = Dict.empty
+            , attributes = Dict.empty
+            }
 
 
 
@@ -289,8 +330,22 @@ customMaterial { position, fragColor } =
 
 
 glMulVectorMat4 : Unit u a Mat4 -> Unit u a Vec4 -> Unit u a Vec4
-glMulVectorMat4 (Unit mat) (Unit vec) =
-    mergeUnits mat vec ("(" ++ mat.source ++ " * " ++ vec.source ++ ")")
+glMulVectorMat4 =
+    binOpUnit "*"
+
+
+glAddVec3 : Unit u a Vec3 -> Unit u a Vec3 -> Unit u a Vec3
+glAddVec3 =
+    binOpUnit "+"
+
+
+glScaleVec3 : Unit u a Vec3 -> Unit u a Float -> Unit u a Vec3
+glScaleVec3 =
+    binOpUnit "*"
+
+
+binOpUnit op (Unit u1) (Unit u2) =
+    mergeUnits u1 u2 ("( " ++ u1.source ++ op ++ u2.source ++ " )")
 
 
 mergeUnits u1 u2 source =
@@ -319,3 +374,8 @@ type Mat3
 glMulVectorMat3 : Unit u a Mat3 -> Unit u a Vec3 -> Unit u a Vec3
 glMulVectorMat3 (Unit mat) (Unit vec) =
     mergeUnits mat vec ("(" ++ mat.source ++ " * " ++ vec.source ++ ")")
+
+
+glExtract3by3 : Unit u a Mat4 -> Unit u a Mat3
+glExtract3by3 (Unit m) =
+    Unit { m | source = "mat3(" ++ m.source ++ ")" }

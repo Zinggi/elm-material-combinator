@@ -1,4 +1,4 @@
-module MaterialCombinator exposing (..)
+module MaterialCombinatorAPIStudy exposing (..)
 
 {-|
 
