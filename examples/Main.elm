@@ -22,10 +22,11 @@ example2 =
         { position =
             glMulVectorMat4 (mat4 .modelViewProjectionMatrix) (glVec3to4 position)
         , fragColor =
-            glVec3to4 <|
-                (glNormalize
-                    (glMulVectorMat3 (glExtract3by3 (mat4 .modelMatrix)) normal)
-                )
+            (glNormalize
+                (glMulVectorMat3 (glExtract3by3 (mat4 .modelMatrix)) normal)
+            )
+                |> glVec3to4
+                |> glMulVector4 (sampleTexture (texture .textureDiff))
         }
 
 

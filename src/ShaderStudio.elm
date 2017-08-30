@@ -21,6 +21,7 @@ import Mouse
 import Window
 import OBJ
 import OBJ.Types exposing (ObjFile, Mesh(..), MeshWith)
+import Meshes exposing (meshes)
 
 
 program : Config varyings -> Program Never Model Msg
@@ -74,7 +75,6 @@ type alias Attributes =
 
 type alias Model =
     { time : Float
-    , mesh : Result String (MeshWith Attributes)
     , currentModel : String
     , zoom : Float
     , diffText : Result String GL.Texture
@@ -93,8 +93,7 @@ type alias MouseDelta =
 
 initModel : Model
 initModel =
-    { mesh = Err "loading ..."
-    , currentModel = "meshes/elmLogo.obj"
+    { currentModel = "cube"
     , time = 0
     , zoom = 5
     , diffText = Err "Loading texture..."
@@ -107,25 +106,13 @@ initModel =
     }
 
 
-models : List String
-models =
-    [ "meshes/elmLogo.obj"
-    ]
-
-
 initCmd : Cmd Msg
 initCmd =
     Cmd.batch
-        [ loadModel "meshes/elmLogo.obj"
-        , loadTexture "textures/elmLogoDiffuse.png" DiffTextureLoaded
+        [ loadTexture "textures/elmLogoDiffuse.png" DiffTextureLoaded
         , loadTexture "textures/elmLogoNorm.png" NormTextureLoaded
         , Task.perform ResizeWindow Window.size
         ]
-
-
-loadModel : String -> Cmd Msg
-loadModel url =
-    OBJ.loadMeshWithTangent url (LoadObj url)
 
 
 
@@ -134,7 +121,6 @@ loadModel url =
 
 type Msg
     = Tick Float
-    | LoadObj String (Result String (MeshWith Attributes))
     | Zoom Float
     | MouseMove Mouse.Position
     | MouseDown Mouse.Position
@@ -155,12 +141,8 @@ update msg model =
         Zoom dy ->
             ( { model | zoom = max 0.01 (model.zoom + dy / 100) }, Cmd.none )
 
-        SelectMesh url ->
-            ( model, loadModel url )
-
-        LoadObj url mesh ->
-            -- TODO: remove: this will be used to store the models in a .elm file
-            ( { model | mesh = Debug.log "mesh" mesh, currentModel = url }, Cmd.none )
+        SelectMesh mesh ->
+            ( { model | currentModel = mesh }, Cmd.none )
 
         DiffTextureLoaded t ->
             ( { model | diffText = t }, Cmd.none )
@@ -188,14 +170,14 @@ update msg model =
 -- VIEW / RENDER
 
 
-renderModel : Config v -> Model -> GL.Texture -> GL.Texture -> MeshWith Attributes -> GL.Entity
-renderModel config model textureDiff textureNorm mesh =
+renderModel : Config v -> Model -> GL.Texture -> GL.Texture -> List GL.Entity
+renderModel config model textureDiff textureNorm =
     let
         ( camera, view, viewProjection, cameraPos ) =
             getCamera model
 
         modelM =
-            M4.makeTranslate (vec3 -1 0 0)
+            M4.identity
 
         lightPos =
             vec3 (0.5 * cos (2 * model.time)) (1 + 0.5 * sin (2 * model.time)) 0.5
@@ -211,7 +193,12 @@ renderModel config model textureDiff textureNorm mesh =
             , lightPosition = lightPos
             }
     in
-        renderCullFace config.vertexShader config.fragmentShader (GL.indexedTriangles mesh.vertices mesh.indices) uniforms
+        case Dict.get model.currentModel meshes of
+            Just m ->
+                [ renderCullFace config.vertexShader config.fragmentShader (GL.indexedTriangles m.vertices m.indices) uniforms ]
+
+            Nothing ->
+                []
 
 
 getCamera : Model -> ( Mat4, Mat4, Mat4, Vec3 )
@@ -227,10 +214,10 @@ getCamera { mouseDelta, zoom, windowSize } =
             M4.makePerspective 45 aspect 0.01 10000
 
         position =
-            vec3 (zoom * sin -mx * sin my) (-zoom * cos my + 1) (zoom * cos -mx * sin my)
+            vec3 (zoom * sin -mx * sin my) (-zoom * cos my) (zoom * cos -mx * sin my)
 
         view =
-            M4.makeLookAt (position) (vec3 0 1 0) (vec3 0 1 0)
+            M4.makeLookAt (position) (vec3 0 0 0) (vec3 0 1 0)
     in
         ( proj, view, M4.mul proj view, position )
 
@@ -239,15 +226,15 @@ view : Config v -> Model -> Html.Html Msg
 view config model =
     div []
         [ uiView model
-        , case ( model.mesh, model.diffText, model.normText ) of
-            ( Ok m, Ok td, Ok tn ) ->
+        , case ( model.diffText, model.normText ) of
+            ( Ok td, Ok tn ) ->
                 GL.toHtmlWith [ GL.antialias, GL.depth 1 ]
                     [ onZoom
                     , Attr.width (model.windowSize.width)
                     , Attr.height (model.windowSize.height)
                     , Attr.style [ ( "position", "absolute" ) ]
                     ]
-                    [ renderModel config model td tn m ]
+                    (renderModel config model td tn)
 
             err ->
                 Html.div [] [ Html.text (toString err) ]
@@ -258,7 +245,7 @@ uiView : Model -> Html Msg
 uiView model =
     div [ Attr.style [ ( "position", "absolute" ), ( "z-index", "2" ), ( "backgroundColor", "white" ) ] ]
         [ Html.select [ onInput SelectMesh, Attr.value model.currentModel ]
-            (List.map (\t -> Html.option [ Attr.value t ] [ text t ]) models)
+            (List.map (\t -> Html.option [ Attr.value t ] [ text t ]) (Dict.keys meshes))
         , Html.input
             [ Attr.type_ "checkbox"
             , Attr.checked model.paused

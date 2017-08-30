@@ -1,6 +1,13 @@
 module MaterialCombinator exposing (..)
 
-{-| -}
+{-|
+
+    TODO: add simpler materials, kinda like:
+    https://docs.unrealengine.com/latest/INT/Engine/Rendering/Materials/MaterialProperties/LightingModels/index.html
+    https://docs.unrealengine.com/udk/Three/MaterialsOverview.html
+    https://docs.unrealengine.com/udk/Three/MaterialBasics.html
+    https://docs.unrealengine.com/udk/Three/MaterialExamples.html
+-}
 
 import Math.Matrix4 as M4 exposing (Mat4)
 import Math.Vector4 as V4 exposing (Vec4)
@@ -178,6 +185,11 @@ position =
     attribute .position "vec3"
 
 
+texCoord : Unit uniforms { a | texCoord : Vec2 } Vec2
+texCoord =
+    attribute .texCoord "vec2"
+
+
 vertexNormal : Unit uniforms { a | vertexNormal : Vec3 } Vec3
 vertexNormal =
     attribute .vertexNormal "vec3"
@@ -220,6 +232,69 @@ floatAttribute f =
 intAttribute : (attributes -> Int) -> Unit uniforms attributes Int
 intAttribute f =
     attribute f "int"
+
+
+
+-- operations
+
+
+sampleUV : Unit u a Vec2 -> Unit u a Texture -> Unit u a Vec4
+sampleUV uv texture =
+    func2Unit "texture2D" texture uv
+
+
+sampleTexture : Unit uniforms { a | texCoord : Vec2 } Texture -> Unit uniforms { a | texCoord : Vec2 } Vec4
+sampleTexture texture =
+    sampleUV texCoord texture
+
+
+glVec3to4 : Unit u a Vec3 -> Unit u a Vec4
+glVec3to4 (Unit vec) =
+    Unit { vec | source = "vec4(" ++ vec.source ++ ",1.0)" }
+
+
+glNormalize : Unit u a Vec3 -> Unit u a Vec3
+glNormalize (Unit u) =
+    Unit { u | source = "normalize(" ++ u.source ++ ")" }
+
+
+type Mat3
+    = Mat3
+
+
+glMulVectorMat3 : Unit u a Mat3 -> Unit u a Vec3 -> Unit u a Vec3
+glMulVectorMat3 =
+    binOpUnit "*"
+
+
+glExtract3by3 : Unit u a Mat4 -> Unit u a Mat3
+glExtract3by3 (Unit m) =
+    Unit { m | source = "mat3(" ++ m.source ++ ")" }
+
+
+glMulVector3 : Unit u a Vec3 -> Unit u a Vec3 -> Unit u a Vec3
+glMulVector3 =
+    binOpUnit "*"
+
+
+glMulVector4 : Unit u a Vec4 -> Unit u a Vec4 -> Unit u a Vec4
+glMulVector4 =
+    binOpUnit "*"
+
+
+glMulVectorMat4 : Unit u a Mat4 -> Unit u a Vec4 -> Unit u a Vec4
+glMulVectorMat4 =
+    binOpUnit "*"
+
+
+glAddVec3 : Unit u a Vec3 -> Unit u a Vec3 -> Unit u a Vec3
+glAddVec3 =
+    binOpUnit "+"
+
+
+glScaleVec3 : Unit u a Vec3 -> Unit u a Float -> Unit u a Vec3
+glScaleVec3 =
+    binOpUnit "*"
 
 
 
@@ -329,23 +404,12 @@ customMaterial { position, fragColor } =
             }
 
 
-glMulVectorMat4 : Unit u a Mat4 -> Unit u a Vec4 -> Unit u a Vec4
-glMulVectorMat4 =
-    binOpUnit "*"
-
-
-glAddVec3 : Unit u a Vec3 -> Unit u a Vec3 -> Unit u a Vec3
-glAddVec3 =
-    binOpUnit "+"
-
-
-glScaleVec3 : Unit u a Vec3 -> Unit u a Float -> Unit u a Vec3
-glScaleVec3 =
-    binOpUnit "*"
-
-
 binOpUnit op (Unit u1) (Unit u2) =
-    mergeUnits u1 u2 ("( " ++ u1.source ++ op ++ u2.source ++ " )")
+    mergeUnits u1 u2 ("(" ++ u1.source ++ op ++ u2.source ++ ")")
+
+
+func2Unit f (Unit u1) (Unit u2) =
+    mergeUnits u1 u2 (f ++ "(" ++ u1.source ++ "," ++ u2.source ++ ")")
 
 
 mergeUnits u1 u2 source =
@@ -355,27 +419,3 @@ mergeUnits u1 u2 source =
             Dict.union u1.attributes u2.attributes
         , uniforms = Dict.union u1.uniforms u2.uniforms
         }
-
-
-glVec3to4 : Unit u a Vec3 -> Unit u a Vec4
-glVec3to4 (Unit vec) =
-    Unit { vec | source = "vec4(" ++ vec.source ++ ",1.0)" }
-
-
-glNormalize : Unit u a Vec3 -> Unit u a Vec3
-glNormalize (Unit u) =
-    Unit { u | source = "normalize(" ++ u.source ++ ")" }
-
-
-type Mat3
-    = Mat3
-
-
-glMulVectorMat3 : Unit u a Mat3 -> Unit u a Vec3 -> Unit u a Vec3
-glMulVectorMat3 (Unit mat) (Unit vec) =
-    mergeUnits mat vec ("(" ++ mat.source ++ " * " ++ vec.source ++ ")")
-
-
-glExtract3by3 : Unit u a Mat4 -> Unit u a Mat3
-glExtract3by3 (Unit m) =
-    Unit { m | source = "mat3(" ++ m.source ++ ")" }
