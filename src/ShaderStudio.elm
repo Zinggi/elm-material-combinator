@@ -4,7 +4,7 @@ module ShaderStudio exposing (program)
 
 import AnimationFrame
 import Dict exposing (Dict)
-import Html exposing (Html, div, text)
+import Html exposing (Html, Attribute, div, text)
 import Html.Attributes as Attr
 import Html.Events exposing (on, onInput, onCheck)
 import Json.Decode as JD
@@ -13,14 +13,12 @@ import Math.Vector4 as V4 exposing (Vec4)
 import Math.Vector3 as V3 exposing (Vec3, vec3)
 import Math.Vector2 as V2 exposing (Vec2)
 import Task
-import WebGL as GL exposing (Shader, Texture)
+import WebGL as GL exposing (Shader, Texture, Mesh, Entity)
 import WebGL.Texture
 import WebGL.Settings exposing (cullFace, front)
 import WebGL.Settings.DepthTest as DepthTest
 import Mouse
 import Window
-import OBJ
-import OBJ.Types exposing (ObjFile, Mesh(..), MeshWith)
 import Meshes exposing (meshes)
 
 
@@ -109,8 +107,8 @@ initModel =
 initCmd : Cmd Msg
 initCmd =
     Cmd.batch
-        [ loadTexture "textures/elmLogoDiffuse.png" DiffTextureLoaded
-        , loadTexture "textures/elmLogoNorm.png" NormTextureLoaded
+        [ loadTexture "textures/elmBrickDiff.png" DiffTextureLoaded
+        , loadTexture "textures/elmBrickNorm.png" NormTextureLoaded
         , Task.perform ResizeWindow Window.size
         ]
 
@@ -125,8 +123,8 @@ type Msg
     | MouseMove Mouse.Position
     | MouseDown Mouse.Position
     | MouseUp
-    | DiffTextureLoaded (Result String GL.Texture)
-    | NormTextureLoaded (Result String GL.Texture)
+    | DiffTextureLoaded (Result String Texture)
+    | NormTextureLoaded (Result String Texture)
     | ResizeWindow Window.Size
     | SelectMesh String
     | TogglePause
@@ -170,8 +168,8 @@ update msg model =
 -- VIEW / RENDER
 
 
-renderModel : Config v -> Model -> GL.Texture -> GL.Texture -> List GL.Entity
-renderModel config model textureDiff textureNorm =
+renderModel : Config v -> Model -> Mesh Attributes -> Texture -> Texture -> Entity
+renderModel config model mesh textureDiff textureNorm =
     let
         ( camera, view, viewProjection, cameraPos ) =
             getCamera model
@@ -193,12 +191,7 @@ renderModel config model textureDiff textureNorm =
             , lightPosition = lightPos
             }
     in
-        case Dict.get model.currentModel meshes of
-            Just m ->
-                [ renderCullFace config.vertexShader config.fragmentShader (GL.indexedTriangles m.vertices m.indices) uniforms ]
-
-            Nothing ->
-                []
+        renderCullFace config.vertexShader config.fragmentShader mesh uniforms
 
 
 getCamera : Model -> ( Mat4, Mat4, Mat4, Vec3 )
@@ -222,19 +215,19 @@ getCamera { mouseDelta, zoom, windowSize } =
         ( proj, view, M4.mul proj view, position )
 
 
-view : Config v -> Model -> Html.Html Msg
+view : Config v -> Model -> Html Msg
 view config model =
     div []
         [ uiView model
-        , case ( model.diffText, model.normText ) of
-            ( Ok td, Ok tn ) ->
+        , case ( model.diffText, model.normText, Dict.get model.currentModel meshes ) of
+            ( Ok td, Ok tn, Just mesh ) ->
                 GL.toHtmlWith [ GL.antialias, GL.depth 1 ]
                     [ onZoom
                     , Attr.width (model.windowSize.width)
                     , Attr.height (model.windowSize.height)
                     , Attr.style [ ( "position", "absolute" ) ]
                     ]
-                    (renderModel config model td tn)
+                    [ renderModel config model mesh td tn ]
 
             err ->
                 Html.div [] [ Html.text (toString err) ]
@@ -283,7 +276,7 @@ subscriptions model =
 -- HELPERS
 
 
-onZoom : Html.Attribute Msg
+onZoom : Attribute Msg
 onZoom =
     on "wheel" (JD.map Zoom (JD.field "deltaY" JD.float))
 
@@ -307,6 +300,6 @@ loadTexture url msg =
             )
 
 
-renderCullFace : GL.Shader a u v -> GL.Shader {} u v -> GL.Mesh a -> u -> GL.Entity
+renderCullFace : Shader a u v -> Shader {} u v -> Mesh a -> u -> Entity
 renderCullFace =
     GL.entityWith [ DepthTest.default, cullFace front ]

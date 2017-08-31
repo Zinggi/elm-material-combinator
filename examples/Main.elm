@@ -22,11 +22,7 @@ example2 =
         { position =
             glMulVectorMat4 (mat4 .modelViewProjectionMatrix) (glVec3to4 position)
         , fragColor =
-            (glNormalize
-                (glMulVectorMat3 (glExtract3by3 (mat4 .modelMatrix)) normal)
-            )
-                |> glVec3to4
-                |> glMulVector4 (sampleTexture (texture .textureDiff))
+            sampleTexture (texture .textureDiff)
         }
 
 
@@ -39,7 +35,3 @@ main =
             { vertexShader = WebGL.unsafeShader vert
             , fragmentShader = WebGL.unsafeShader frag
             }
-
-
-
---Html.text (toString <| Native.Reflection.getAccessorName .fuckHitler)

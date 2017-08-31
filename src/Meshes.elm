@@ -3,15 +3,16 @@ module Meshes exposing (..)
 import Dict
 import OBJ
 import OBJ.Types exposing (Mesh(..), MeshWith, VertexWithTextureAndTangent)
+import WebGL exposing (Mesh, indexedTriangles)
 
 
-parseMesh : String -> MeshWith VertexWithTextureAndTangent
+parseMesh : String -> WebGL.Mesh VertexWithTextureAndTangent
 parseMesh str =
     case OBJ.parseObjStringWith { withTangents = True } str of
         Ok f ->
             case (Dict.values f |> List.map Dict.values) of
                 [ [ WithTextureAndTangent m ] ] ->
-                    m
+                    indexedTriangles m.vertices m.indices
 
                 _ ->
                     Debug.crash "Failed to parse mesh, this shouldn't happen!"
