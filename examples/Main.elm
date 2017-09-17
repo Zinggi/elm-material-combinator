@@ -1,7 +1,5 @@
 module Main exposing (main)
 
-import Html exposing (text)
-import Html.Attributes
 import WebGL
 import ShaderStudio exposing (..)
 import MaterialCombinator exposing (..)
