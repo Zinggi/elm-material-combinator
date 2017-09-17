@@ -34,4 +34,6 @@ main =
         ShaderStudio.program
             { vertexShader = WebGL.unsafeShader vert
             , fragmentShader = WebGL.unsafeShader frag
+            , defaultTexture = "textures/elmBrickDiff.png"
+            , textures = [ "textures/elmBrickNorm.png" ]
             }

@@ -4,6 +4,7 @@ module ShaderStudio exposing (program)
 
 import AnimationFrame
 import Dict exposing (Dict)
+import Regex exposing (regex)
 import Html exposing (Html, Attribute, div, text)
 import Html.Attributes as Attr
 import Html.Events exposing (on, onInput, onCheck)
@@ -20,21 +21,22 @@ import WebGL.Settings.DepthTest as DepthTest
 import Mouse
 import Window
 import Meshes exposing (meshes)
+import Game.Resources as Resources exposing (Resources)
 
 
 program : Config varyings -> Program Never Model Msg
 program config =
     Html.program
-        { init = init
+        { init = init config
         , view = view config
         , subscriptions = subscriptions
         , update = update
         }
 
 
-init : ( Model, Cmd Msg )
-init =
-    ( initModel, initCmd )
+init : Config v -> ( Model, Cmd Msg )
+init config =
+    ( initModel config, initCmd config )
 
 
 
@@ -44,6 +46,8 @@ init =
 type alias Config varyings =
     { vertexShader : Shader Attributes Uniforms varyings
     , fragmentShader : Shader {} Uniforms varyings
+    , defaultTexture : String
+    , textures : List String
     }
 
 
@@ -75,8 +79,9 @@ type alias Model =
     { time : Float
     , currentModel : String
     , zoom : Float
-    , diffText : Result String GL.Texture
-    , normText : Result String GL.Texture
+    , resources : Resources
+    , diffText : String
+    , normText : String
     , isDown : Bool
     , lastMousePos : Mouse.Position
     , mouseDelta : MouseDelta
@@ -89,13 +94,14 @@ type alias MouseDelta =
     { x : Float, y : Float }
 
 
-initModel : Model
-initModel =
-    { currentModel = "cube"
+initModel : Config v -> Model
+initModel config =
+    { currentModel = "plane"
     , time = 0
     , zoom = 5
-    , diffText = Err "Loading texture..."
-    , normText = Err "Loading texture..."
+    , resources = Resources.init
+    , diffText = config.defaultTexture
+    , normText = tryFindNormalMap config
     , isDown = False
     , lastMousePos = Mouse.Position 0 0
     , mouseDelta = MouseDelta 0 (pi / 2)
@@ -104,11 +110,18 @@ initModel =
     }
 
 
-initCmd : Cmd Msg
-initCmd =
+tryFindNormalMap config =
+    config.textures
+        |> List.filter (\i -> Regex.contains (Regex.caseInsensitive (regex "norm")) i)
+        |> List.head
+        |> Maybe.withDefault config.defaultTexture
+
+
+initCmd : Config v -> Cmd Msg
+initCmd config =
     Cmd.batch
-        [ loadTexture "textures/elmBrickDiff.png" DiffTextureLoaded
-        , loadTexture "textures/elmBrickNorm.png" NormTextureLoaded
+        [ Resources.loadTextures (config.defaultTexture :: config.textures)
+            |> Cmd.map Resources
         , Task.perform ResizeWindow Window.size
         ]
 
@@ -123,8 +136,9 @@ type Msg
     | MouseMove Mouse.Position
     | MouseDown Mouse.Position
     | MouseUp
-    | DiffTextureLoaded (Result String Texture)
-    | NormTextureLoaded (Result String Texture)
+    | Resources Resources.Msg
+    | SelectDiffText String
+    | SelectNormText String
     | ResizeWindow Window.Size
     | SelectMesh String
     | TogglePause
@@ -142,11 +156,14 @@ update msg model =
         SelectMesh mesh ->
             ( { model | currentModel = mesh }, Cmd.none )
 
-        DiffTextureLoaded t ->
-            ( { model | diffText = t }, Cmd.none )
+        SelectNormText texture ->
+            ( { model | normText = texture }, Cmd.none )
 
-        NormTextureLoaded t ->
-            ( { model | normText = t }, Cmd.none )
+        SelectDiffText texture ->
+            ( { model | diffText = texture }, Cmd.none )
+
+        Resources msg ->
+            ( { model | resources = Resources.update msg model.resources }, Cmd.none )
 
         MouseDown p ->
             ( { model | isDown = True, lastMousePos = p }, Cmd.none )
@@ -218,9 +235,9 @@ getCamera { mouseDelta, zoom, windowSize } =
 view : Config v -> Model -> Html Msg
 view config model =
     div []
-        [ uiView model
-        , case ( model.diffText, model.normText, Dict.get model.currentModel meshes ) of
-            ( Ok td, Ok tn, Just mesh ) ->
+        [ uiView config model
+        , case ( Resources.getTexture model.diffText model.resources, Resources.getTexture model.normText model.resources, Dict.get model.currentModel meshes ) of
+            ( Just td, Just tn, Just mesh ) ->
                 GL.toHtmlWith [ GL.antialias, GL.depth 1 ]
                     [ onZoom
                     , Attr.width (model.windowSize.width)
@@ -234,18 +251,33 @@ view config model =
         ]
 
 
-uiView : Model -> Html Msg
-uiView model =
+uiView : Config v -> Model -> Html Msg
+uiView config model =
     div [ Attr.style [ ( "position", "absolute" ), ( "z-index", "2" ), ( "backgroundColor", "white" ) ] ]
         [ Html.select [ onInput SelectMesh, Attr.value model.currentModel ]
-            (List.map (\t -> Html.option [ Attr.value t ] [ text t ]) (Dict.keys meshes))
+            (makeOptions (Dict.keys meshes))
+        , Html.text "paused: "
         , Html.input
             [ Attr.type_ "checkbox"
             , Attr.checked model.paused
             , onCheck (always TogglePause)
             ]
-            [ Html.text "paused?" ]
+            []
+        , Html.text "diffuse texture: "
+        , Html.select [ onInput SelectDiffText, Attr.value model.diffText ]
+            (makeOptions (allTextures config))
+        , Html.text "normal map"
+        , Html.select [ onInput SelectNormText, Attr.value model.normText ]
+            (makeOptions (allTextures config))
         ]
+
+
+allTextures config =
+    config.defaultTexture :: config.textures
+
+
+makeOptions list =
+    List.map (\t -> Html.option [ Attr.value t ] [ text t ]) list
 
 
 
