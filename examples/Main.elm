@@ -3,6 +3,7 @@ module Main exposing (main)
 import WebGL
 import ShaderStudio exposing (..)
 import MaterialCombinator exposing (..)
+import MaterialCombinator.Operations exposing (..)
 
 
 {-| this is how the library might be used
@@ -10,15 +11,15 @@ import MaterialCombinator exposing (..)
 example =
     customMaterial
         { position =
-            glMulVectorMat4 (mat4 .modelViewProjectionMatrix) (glVec3to4 position)
-        , fragColor = glVec3to4 normal
+            mulVectorMat4 (mat4 .modelViewProjectionMatrix) (vec3to4 position)
+        , fragColor = vec3to4 normal
         }
 
 
 example2 =
     customMaterial
         { position =
-            glMulVectorMat4 (mat4 .modelViewProjectionMatrix) (glVec3to4 position)
+            mulVectorMat4 (mat4 .modelViewProjectionMatrix) (vec3to4 position)
         , fragColor =
             sampleTexture (texture .textureDiff)
         }

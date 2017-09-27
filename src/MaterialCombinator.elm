@@ -1,4 +1,12 @@
-module MaterialCombinator exposing (..)
+module MaterialCombinator
+    exposing
+        ( Material
+        , customMaterial
+        , blinnPhongMaterial
+        , render
+        , extractShader
+        , extractShaderCode
+        )
 
 {-|
 
@@ -9,18 +17,20 @@ module MaterialCombinator exposing (..)
     https://docs.unrealengine.com/udk/Three/MaterialExamples.html
 -}
 
-import Math.Matrix4 as M4 exposing (Mat4)
+import Math.Matrix4 exposing (Mat4)
 import Math.Vector4 as V4 exposing (Vec4)
 import Math.Vector3 as V3 exposing (Vec3)
-import Math.Vector2 as V2 exposing (Vec2)
 import WebGL exposing (Shader, Texture, Mesh, entity)
 import Dict exposing (Dict)
-import Native.Reflection
 
 
-getAccessorName : (a -> b) -> Result String String
-getAccessorName =
-    Native.Reflection.getAccessorName
+--
+
+import MaterialCombinator.Types as MT exposing (Material(..), Unit(..))
+
+
+type alias Material attributes uniforms =
+    MT.Material attributes uniforms
 
 
 render : Material attributes uniforms -> Mesh attributes -> uniforms -> WebGL.Entity
@@ -56,251 +66,111 @@ getFrag (Material a) =
     a.frag
 
 
-{-| This type just bundles a vertex/fragment shader pair
--}
-type Material attributes uniforms
-    = Material { frag : String, vert : String }
-
-
-{-| This type represents a wire in UE4's material editor
--}
-type Unit uniforms attributes type_
-    = Unit { source : String, uniforms : Dict String String, attributes : Dict String String }
-
-
-uniform : (uniforms -> a) -> String -> Unit uniforms attributes a
-uniform f type_ =
-    case getAccessorName f of
-        Err e ->
-            Debug.crash "You provided a uniform accessor that was not in the form of '.someVariable'\nAborting!"
-
-        Ok name ->
-            Unit { source = name, uniforms = Dict.singleton name type_, attributes = Dict.empty }
-
-
-attribute : (attributes -> a) -> String -> Unit uniforms attributes a
-attribute f type_ =
-    case getAccessorName f of
-        Err e ->
-            Debug.crash "You provided a uniform accessor that was not in the form of '.someVariable'\nAborting!"
-
-        Ok name ->
-            Unit { source = name, attributes = Dict.singleton name type_, uniforms = Dict.empty }
-
-
-
--- uniform types
-
-
-texture : (uniforms -> Texture) -> Unit uniforms attributes Texture
-texture f =
-    uniform f "sampler2D"
-
-
-vec2 : (uniforms -> Vec2) -> Unit uniforms attributes Vec2
-vec2 f =
-    uniform f "vec2"
-
-
-vec3 : (uniforms -> Vec3) -> Unit uniforms attributes Vec3
-vec3 f =
-    uniform f "vec3"
-
-
-vec4 : (uniforms -> Vec4) -> Unit uniforms attributes Vec4
-vec4 f =
-    uniform f "vec4"
-
-
-mat4 : (uniforms -> Mat4) -> Unit uniforms attributes Mat4
-mat4 f =
-    uniform f "mat4"
-
-
-float : (uniforms -> Float) -> Unit uniforms attributes Float
-float f =
-    uniform f "float"
-
-
-int : (uniforms -> Int) -> Unit uniforms attributes Int
-int f =
-    uniform f "int"
-
-
-
--- constants
-
-
-constInt : Int -> Unit uniforms attributes Int
-constInt i =
-    Unit { source = toString i, uniforms = Dict.empty, attributes = Dict.empty }
-
-
-constFloat : Float -> Unit uniforms attributes Float
-constFloat i =
-    Unit { source = toString i, uniforms = Dict.empty, attributes = Dict.empty }
-
-
-constVec2 : Vec2 -> Unit uniforms attributes Vec2
-constVec2 v =
+customMaterial :
+    { position : Unit uniforms attributes Vec4
+    , fragColor : Unit uniforms attributes Vec4
+    }
+    -> Material uniforms attributes
+customMaterial { position, fragColor } =
     let
-        ( x, y ) =
-            V2.toTuple v
+        ( varyingDeclarations, varyingAssignments ) =
+            getVaryings fragColor
     in
-        Unit { source = "vec2(" ++ toString x ++ "," ++ toString y ++ ")", uniforms = Dict.empty, attributes = Dict.empty }
-
-
-constVec3 : Vec3 -> Unit uniforms attributes Vec3
-constVec3 v =
-    let
-        ( x, y, z ) =
-            V3.toTuple v
-    in
-        Unit
-            { source = "vec3(" ++ toString x ++ "," ++ toString y ++ "," ++ toString z ++ ")"
-            , uniforms = Dict.empty
-            , attributes = Dict.empty
+        Material
+            { vert =
+                "precision mediump float;\n"
+                    ++ getUniforms position
+                    ++ getAttributes position fragColor
+                    ++ varyingDeclarations
+                    ++ "void main() {\n"
+                    ++ varyingAssignments
+                    ++ "gl_Position = "
+                    ++ getSource position
+                    ++ "}\n"
+            , frag =
+                "precision mediump float;\n"
+                    ++ getUniforms fragColor
+                    ++ varyingDeclarations
+                    ++ "void main() {\n"
+                    ++ varyingToAttrHack fragColor
+                    ++ "gl_FragColor = "
+                    ++ getSource fragColor
+                    ++ "}\n"
             }
 
 
-constVec4 : Vec4 -> Unit uniforms attributes Vec4
-constVec4 v =
+type alias BlinnPhongUniforms a =
+    { a | projectionMatrix : Mat4, modelViewMatrix : Mat4, normalMatrix : Mat4 }
+
+
+type alias BlinnPhongAttributes a =
+    { a | position : Vec3, normal : Vec3 }
+
+
+
+{- TODO: narrow attribute type -}
+
+
+blinnPhongMaterial : { diffuse : Unit (BlinnPhongUniforms u) (BlinnPhongAttributes a) Vec3 } -> Material (BlinnPhongAttributes a) (BlinnPhongUniforms u)
+blinnPhongMaterial config =
     let
-        ( x, y, z, w ) =
-            V4.toTuple v
+        ( varyingDeclarations, varyingAssignments ) =
+            getVaryings config.diffuse
     in
-        Unit
-            { source = "vec4(" ++ toString x ++ "," ++ toString y ++ "," ++ toString z ++ "," ++ toString w ++ ")"
-            , uniforms = Dict.empty
-            , attributes = Dict.empty
+        Material
+            { vert =
+                "precision mediump float;\n"
+                    ++ "attribute vec3 position;\n"
+                    ++ "attribute vec3 normal;\n"
+                    ++ getAttributes emptyNode config.diffuse
+                    ++ varyingDeclarations
+                    ++ "varying vec3 normalV;\n"
+                    ++ "varying vec3 vertPos;\n"
+                    ++ "uniform mat4 projectionMatrix, modelViewMatrix, normalMatrix, modelViewProjectionMatrix;\n"
+                    ++ "void main() {\n"
+                    ++ "    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n"
+                    ++ "    vec4 vertPos4 = modelViewMatrix * vec4(position, 1.0);\n"
+                    ++ "    vertPos = vec3(vertPos4) / vertPos4.w;\n"
+                    ++ "    normalV = vec3(normalMatrix * vec4(normal, 0.0));\n"
+                    ++ varyingAssignments
+                    ++ "}\n"
+            , frag =
+                "precision mediump float;\n"
+                    ++ "varying vec3 normalV;\n"
+                    ++ "varying vec3 vertPos;\n"
+                    ++ "uniform vec3 lightPosition;\n"
+                    ++ "const vec3 ambientColor = vec3(0.1, 0.0, 0.0);\n"
+                    ++ "const vec3 specColor = vec3(1.0, 1.0, 1.0);\n"
+                    ++ getMoreUniforms [ config.diffuse ]
+                    ++ varyingDeclarations
+                    ++ "void main() {\n"
+                    ++ varyingToAttrHack config.diffuse
+                    ++ "    vec3 normal = normalize(normalV);\n"
+                    ++ "    vec3 lightDir = normalize(lightPosition - vertPos);\n"
+                    ++ "    float lambertian = max(dot(lightDir, normal), 0.0);\n"
+                    ++ "    float specular = 0.0;\n"
+                    ++ "    if (lambertian > 0.0) {\n"
+                    ++ "        vec3 viewDir = normalize(-vertPos);\n"
+                    ++ "        vec3 halfDir = normalize(lightDir + viewDir);\n"
+                    ++ "        float specAngle = max(dot(halfDir, normal), 0.0);\n"
+                    ++ "        specular = pow(specAngle, 16.0);\n"
+                    ++ "    }\n"
+                    ++ ("    vec3 color = ambientColor + lambertian * (" ++ getExpression config.diffuse ++ ") + specular * specColor;\n")
+                    ++ "    gl_FragColor = vec4(color, 1.0);\n"
+                    ++ "}\n"
             }
-
-
-
--- common attributes
-
-
-position : Unit uniforms { a | position : Vec3 } Vec3
-position =
-    attribute .position "vec3"
-
-
-texCoord : Unit uniforms { a | texCoord : Vec2 } Vec2
-texCoord =
-    attribute .texCoord "vec2"
-
-
-vertexNormal : Unit uniforms { a | vertexNormal : Vec3 } Vec3
-vertexNormal =
-    attribute .vertexNormal "vec3"
-
-
-normal : Unit uniforms { a | normal : Vec3 } Vec3
-normal =
-    attribute .normal "vec3"
-
-
-
--- attribute types
-
-
-vec2Attribute : (attributes -> Vec2) -> Unit uniforms attributes Vec2
-vec2Attribute f =
-    attribute f "vec2"
-
-
-vec3Attribute : (attributes -> Vec3) -> Unit uniforms attributes Vec3
-vec3Attribute f =
-    attribute f "vec3"
-
-
-vec4Attribute : (attributes -> Vec4) -> Unit uniforms attributes Vec4
-vec4Attribute f =
-    attribute f "vec4"
-
-
-mat4Attribute : (attributes -> Mat4) -> Unit uniforms attributes Mat4
-mat4Attribute f =
-    attribute f "mat4"
-
-
-floatAttribute : (attributes -> Float) -> Unit uniforms attributes Float
-floatAttribute f =
-    attribute f "float"
-
-
-intAttribute : (attributes -> Int) -> Unit uniforms attributes Int
-intAttribute f =
-    attribute f "int"
-
-
-
--- operations
-
-
-sampleUV : Unit u a Vec2 -> Unit u a Texture -> Unit u a Vec4
-sampleUV uv texture =
-    func2Unit "texture2D" texture uv
-
-
-sampleTexture : Unit uniforms { a | texCoord : Vec2 } Texture -> Unit uniforms { a | texCoord : Vec2 } Vec4
-sampleTexture texture =
-    sampleUV texCoord texture
-
-
-glVec3to4 : Unit u a Vec3 -> Unit u a Vec4
-glVec3to4 (Unit vec) =
-    Unit { vec | source = "vec4(" ++ vec.source ++ ",1.0)" }
-
-
-glNormalize : Unit u a Vec3 -> Unit u a Vec3
-glNormalize (Unit u) =
-    Unit { u | source = "normalize(" ++ u.source ++ ")" }
-
-
-type Mat3
-    = Mat3
-
-
-glMulVectorMat3 : Unit u a Mat3 -> Unit u a Vec3 -> Unit u a Vec3
-glMulVectorMat3 =
-    binOpUnit "*"
-
-
-glExtract3by3 : Unit u a Mat4 -> Unit u a Mat3
-glExtract3by3 (Unit m) =
-    Unit { m | source = "mat3(" ++ m.source ++ ")" }
-
-
-glMulVector3 : Unit u a Vec3 -> Unit u a Vec3 -> Unit u a Vec3
-glMulVector3 =
-    binOpUnit "*"
-
-
-glMulVector4 : Unit u a Vec4 -> Unit u a Vec4 -> Unit u a Vec4
-glMulVector4 =
-    binOpUnit "*"
-
-
-glMulVectorMat4 : Unit u a Mat4 -> Unit u a Vec4 -> Unit u a Vec4
-glMulVectorMat4 =
-    binOpUnit "*"
-
-
-glAddVec3 : Unit u a Vec3 -> Unit u a Vec3 -> Unit u a Vec3
-glAddVec3 =
-    binOpUnit "+"
-
-
-glScaleVec3 : Unit u a Vec3 -> Unit u a Float -> Unit u a Vec3
-glScaleVec3 =
-    binOpUnit "*"
 
 
 
 ------------------------------------------
 -- Implementation
 ------------------------------------------
+
+
+getMoreUniforms : List (Unit a u t) -> String
+getMoreUniforms l =
+    List.map getUniforms l
+        |> String.join ""
 
 
 getUniforms : Unit a u t -> String
@@ -347,9 +217,18 @@ varyingToAttrHack (Unit d) =
         )
 
 
+emptyNode =
+    Unit { source = "", uniforms = Dict.empty, attributes = Dict.empty }
+
+
 getSource : Unit a u t -> String
 getSource (Unit u) =
     u.source ++ ";\n"
+
+
+getExpression : Unit a u t -> String
+getExpression (Unit u) =
+    u.source
 
 
 getVaryings : Unit u a t -> ( String, String )
@@ -369,53 +248,3 @@ getVaryings (Unit u) =
                 )
     in
         ( declr, assign )
-
-
-customMaterial :
-    { position : Unit uniforms attributes Vec4
-    , fragColor : Unit uniforms attributes Vec4
-    }
-    -> Material uniforms attributes
-customMaterial { position, fragColor } =
-    let
-        ( varyingDeclarations, varyingAssignments ) =
-            getVaryings fragColor
-    in
-        Material
-            { vert =
-                "precision mediump float;\n"
-                    ++ getUniforms position
-                    ++ getAttributes position fragColor
-                    ++ varyingDeclarations
-                    ++ "void main() {\n"
-                    ++ varyingAssignments
-                    ++ "gl_Position = "
-                    ++ getSource position
-                    ++ "}\n"
-            , frag =
-                "precision mediump float;\n"
-                    ++ getUniforms fragColor
-                    ++ varyingDeclarations
-                    ++ "void main() {\n"
-                    ++ varyingToAttrHack fragColor
-                    ++ "gl_FragColor = "
-                    ++ getSource fragColor
-                    ++ "}\n"
-            }
-
-
-binOpUnit op (Unit u1) (Unit u2) =
-    mergeUnits u1 u2 ("(" ++ u1.source ++ op ++ u2.source ++ ")")
-
-
-func2Unit f (Unit u1) (Unit u2) =
-    mergeUnits u1 u2 (f ++ "(" ++ u1.source ++ "," ++ u2.source ++ ")")
-
-
-mergeUnits u1 u2 source =
-    Unit
-        { source = source
-        , attributes =
-            Dict.union u1.attributes u2.attributes
-        , uniforms = Dict.union u1.uniforms u2.uniforms
-        }
