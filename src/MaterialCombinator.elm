@@ -138,6 +138,7 @@ blinnPhongMaterial config =
                 "precision mediump float;\n"
                     ++ "varying vec3 normalV;\n"
                     ++ "varying vec3 vertPos;\n"
+                    -- lightPosition has to be in view space!
                     ++ "uniform vec3 lightPosition;\n"
                     ++ "const vec3 ambientColor = vec3(0.1, 0.0, 0.0);\n"
                     ++ "const vec3 specColor = vec3(1.0, 1.0, 1.0);\n"
