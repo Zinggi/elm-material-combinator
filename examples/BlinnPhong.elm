@@ -11,6 +11,7 @@ import Html.Attributes as Attr
 material =
     blinnPhongMaterial
         { diffuse = xyz (sampleTexture (texture .textureDiff))
+        , normal = xyz (sampleTexture (texture .textureNorm))
         }
 
 

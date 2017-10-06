@@ -107,57 +107,88 @@ type alias BlinnPhongAttributes a =
     { a | position : Vec3, normal : Vec3 }
 
 
+type alias BlinnPhongConfig u a =
+    { diffuse : Unit (BlinnPhongUniforms u) (BlinnPhongAttributes a) Vec3
+    , normal : Unit (BlinnPhongUniforms u) (BlinnPhongAttributes a) Vec3
+    }
 
-{- TODO: narrow attribute type -}
 
-
-blinnPhongMaterial : { diffuse : Unit (BlinnPhongUniforms u) (BlinnPhongAttributes a) Vec3 } -> Material (BlinnPhongAttributes a) (BlinnPhongUniforms u)
+blinnPhongMaterial : BlinnPhongConfig u a -> Material (BlinnPhongAttributes a) (BlinnPhongUniforms u)
 blinnPhongMaterial config =
     let
         ( varyingDeclarations, varyingAssignments ) =
-            getVaryings config.diffuse
+            getMoreVaryings [ config.diffuse, config.normal ]
     in
         Material
             { vert =
                 "precision mediump float;\n"
                     ++ "attribute vec3 position;\n"
                     ++ "attribute vec3 normal;\n"
-                    ++ getAttributes emptyNode config.diffuse
+                    ++ "attribute vec4 tangent;\n"
+                    ++ getAttributes config.normal config.diffuse
                     ++ varyingDeclarations
-                    ++ "varying vec3 normalV;\n"
-                    ++ "varying vec3 vertPos;\n"
-                    ++ "uniform mat4 projectionMatrix, modelViewMatrix, normalMatrix, modelViewProjectionMatrix;\n"
+                    ++ "varying vec3 vLightDirection;\n"
+                    ++ "varying vec3 vViewDirection;\n"
+                    ++ "uniform mat4 modelMatrix, normalMatrix, modelViewProjectionMatrix;\n"
+                    ++ "uniform vec3 lightPosition;\n"
+                    ++ "uniform vec3 viewPosition;\n"
+                    ++ "mat3 transpose(mat3 m) {\n"
+                    ++ "    return mat3(m[0][0], m[1][0], m[2][0],\n"
+                    ++ "                m[0][1], m[1][1], m[2][1],\n"
+                    ++ "                m[0][2], m[1][2], m[2][2]);\n"
+                    ++ "}\n"
                     ++ "void main() {\n"
-                    ++ "    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n"
-                    ++ "    vec4 vertPos4 = modelViewMatrix * vec4(position, 1.0);\n"
-                    ++ "    vertPos = vec3(vertPos4) / vertPos4.w;\n"
-                    ++ "    normalV = vec3(normalMatrix * vec4(normal, 0.0));\n"
+                    ++ "    vec4 pos = vec4(position, 1.0 );\n"
+                    ++ "    vec4 posWorld4 = modelMatrix * pos;\n"
+                    ++ "    vec3 posWorld = posWorld4.xyz / posWorld4.w;\n"
+                    --      normal mapping
+                    ++ "    mat3 normalMat3 = mat3(normalMatrix);\n"
+                    ++ "    vec3 n = normalize(normalMat3 * normal);\n"
+                    ++ "    vec3 t = normalize(normalMat3 * tangent.xyz);\n"
+                    ++ "    vec3 b = normalize(normalMat3 * (cross(normal, tangent.xyz) * tangent.w));\n"
+                    ++ "    mat3 tbn = transpose(mat3(t, b, n));\n"
+                    ++ "    vLightDirection = tbn*(lightPosition - posWorld);\n"
+                    ++ "    vViewDirection = tbn*(viewPosition - posWorld);"
                     ++ varyingAssignments
+                    ++ "    gl_Position = modelViewProjectionMatrix * pos;\n"
                     ++ "}\n"
             , frag =
                 "precision mediump float;\n"
-                    ++ "varying vec3 normalV;\n"
-                    ++ "varying vec3 vertPos;\n"
-                    -- lightPosition has to be in view space!
-                    ++ "uniform vec3 lightPosition;\n"
-                    ++ "const vec3 ambientColor = vec3(0.1, 0.0, 0.0);\n"
+                    ++ "varying vec3 vLightDirection;\n"
+                    ++ "varying vec3 vViewDirection;\n"
+                    -- TODO: make these as inputs
+                    ++ "const vec3 ambientColor = vec3(0.2, 0.2, 0.2);\n"
                     ++ "const vec3 specColor = vec3(1.0, 1.0, 1.0);\n"
-                    ++ getMoreUniforms [ config.diffuse ]
+                    ++ "const float shininess = 32.0;\n"
+                    -- could also be vec3
+                    ++ "const float lightIntensity = 1.0;\n"
+                    ++ "const float specularIntensity = 1.0;\n"
+                    ++ "const float lightAttenuation = 0.3;\n"
+                    ++ getMoreUniforms [ config.diffuse, config.normal ]
                     ++ varyingDeclarations
                     ++ "void main() {\n"
-                    ++ varyingToAttrHack config.diffuse
-                    ++ "    vec3 normal = normalize(normalV);\n"
-                    ++ "    vec3 lightDir = normalize(lightPosition - vertPos);\n"
-                    ++ "    float lambertian = max(dot(lightDir, normal), 0.0);\n"
-                    ++ "    float specular = 0.0;\n"
-                    ++ "    if (lambertian > 0.0) {\n"
-                    ++ "        vec3 viewDir = normalize(-vertPos);\n"
-                    ++ "        vec3 halfDir = normalize(lightDir + viewDir);\n"
-                    ++ "        float specAngle = max(dot(halfDir, normal), 0.0);\n"
-                    ++ "        specular = pow(specAngle, 16.0);\n"
-                    ++ "    }\n"
-                    ++ ("    vec3 color = ambientColor + lambertian * (" ++ getExpression config.diffuse ++ ") + specular * specColor;\n")
-                    ++ "    gl_FragColor = vec4(color, 1.0);\n"
+                    ++ varyingsToAttrHack [ config.diffuse, config.normal ]
+                    ++ "    vec3 lightDir = normalize(vLightDirection);\n"
+                    --      Local normal, in tangent space
+                    ++ ("    vec3 pixelNormal = normalize((" ++ getExpression config.normal ++ ")*2.0 - 1.0);\n")
+                    --      The lightDir is in tangent space and already contains the vertex normal information!
+                    ++ "    float lambert = max(dot(pixelNormal, lightDir), 0.0);\n"
+                    --      diffuse + lambert
+                    ++ ("    vec3 diffuseColor = " ++ getExpression config.diffuse ++ ";\n")
+                    ++ "    vec3 diffuse = lambert * diffuseColor * lightIntensity;\n"
+                    --      specular
+                    ++ "    vec3 viewDir = normalize(vViewDirection);\n"
+                    ++ "    vec3 reflectDir = reflect(-lightDir, pixelNormal);\n"
+                    ++ "    vec3 halfwayDir = normalize(lightDir + viewDir);\n"
+                    ++ "    float spec = pow(max(dot(pixelNormal, halfwayDir), 0.0), shininess);\n"
+                    ++ "    vec3 specular = vec3(spec) * specularIntensity;\n"
+                    --      attenuation
+                    ++ "    float attenuation = 1.0 / (1.0 + lightAttenuation * pow(length(vLightDirection), 2.0));\n"
+                    --      ambient
+                    ++ "    vec3 ambient = ambientColor * diffuseColor;\n"
+                    --      output
+                    ++ "    vec3 final_color = ambient + (diffuse + specular) * attenuation;\n"
+                    ++ "    gl_FragColor = vec4(final_color, 1.0);\n"
                     ++ "}\n"
             }
 
@@ -170,8 +201,20 @@ blinnPhongMaterial config =
 
 getMoreUniforms : List (Unit a u t) -> String
 getMoreUniforms l =
-    List.map getUniforms l
-        |> String.join ""
+    mergeUnitsNoCode l
+        |> getUniforms
+
+
+getMoreVaryings : List (Unit a u t) -> ( String, String )
+getMoreVaryings l =
+    mergeUnitsNoCode l
+        |> getVaryings
+
+
+varyingsToAttrHack : List (Unit a u t) -> String
+varyingsToAttrHack l =
+    mergeUnitsNoCode l
+        |> varyingToAttrHack
 
 
 getUniforms : Unit a u t -> String
@@ -249,3 +292,16 @@ getVaryings (Unit u) =
                 )
     in
         ( declr, assign )
+
+
+mergeUnitsNoCode units =
+    List.foldl
+        (\(Unit u) (Unit u_) ->
+            Unit
+                { source = ""
+                , attributes = Dict.union u_.attributes u.attributes
+                , uniforms = Dict.union u_.uniforms u.uniforms
+                }
+        )
+        emptyNode
+        units
